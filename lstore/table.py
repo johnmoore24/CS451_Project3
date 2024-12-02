@@ -63,7 +63,8 @@ class Table:
         
     def _debug_log(self, message, level="INFO"):
         if self.debug:
-            print(f"TABLE [{level}]: {message}")
+            #print(f"TABLE [{level}]: {message}")
+            pass
 
     def _get_next_rid(self):
         with self._next_rid_lock:
@@ -95,78 +96,71 @@ class Table:
     
     def create_record(self, *columns):
         try:
-            with open('pt3_testoutput.txt', 'a') as f:
-                f.write(f"\n=== CREATE RECORD ===\n")
-                f.write(f"Creating record with columns: {columns}\n")
-                
-                # Generate RID
-                rid = self._get_next_rid()
-                timestamp = int(time() * 1000000)
-                
-                # Define page range size if not already defined
-                if not hasattr(self, 'page_range_size'):
-                    self.page_range_size = 512  # Match Page class capacity
-                
-                # Find first page with capacity
-                current_base_page_idx = 0
-                while current_base_page_idx < len(self.base_page_ids[0]):
-                    if all(self.bufferpool.get_page(self.name, self.base_page_ids[col][current_base_page_idx]).has_capacity() 
-                          for col in range(self.total_columns)):
-                        break
-                    current_base_page_idx += 1
-                
-                # Create new page if needed
-                if current_base_page_idx >= len(self.base_page_ids[0]):
-                    for col in range(self.total_columns):
-                        new_page_id = f"{self.name}_base_{col}_{len(self.base_page_ids[col])}"
-                        self.base_page_ids[col].append(new_page_id)
-                
-                # Get actual slot within the page
-                slot = self.bufferpool.get_num_records(self.name, self.base_page_ids[0][current_base_page_idx])
-                
-                # Write metadata columns
-                self.bufferpool.write_to_page(self.name, self.base_page_ids[INDIRECTION_COLUMN][current_base_page_idx], rid)
-                self.bufferpool.write_to_page(self.name, self.base_page_ids[RID_COLUMN][current_base_page_idx], rid)
-                self.bufferpool.write_to_page(self.name, self.base_page_ids[TIMESTAMP_COLUMN][current_base_page_idx], timestamp)
-                self.bufferpool.write_to_page(self.name, self.base_page_ids[SCHEMA_ENCODING_COLUMN][current_base_page_idx], 0)
-                
-                # Write data columns
+            # Generate RID
+            rid = self._get_next_rid()
+            timestamp = int(time() * 1000000)
+            
+            # Define page range size if not already defined
+            if not hasattr(self, 'page_range_size'):
+                self.page_range_size = 512  # Match Page class capacity
+            
+            # Find first page with capacity
+            current_base_page_idx = 0
+            while current_base_page_idx < len(self.base_page_ids[0]):
+                if all(self.bufferpool.get_page(self.name, self.base_page_ids[col][current_base_page_idx]).has_capacity() 
+                    for col in range(self.total_columns)):
+                    break
+                current_base_page_idx += 1
+            
+            # Create new page if needed
+            if current_base_page_idx >= len(self.base_page_ids[0]):
+                for col in range(self.total_columns):
+                    new_page_id = f"{self.name}_base_{col}_{len(self.base_page_ids[col])}"
+                    self.base_page_ids[col].append(new_page_id)
+            
+            # Get actual slot within the page
+            slot = self.bufferpool.get_num_records(self.name, self.base_page_ids[0][current_base_page_idx])
+            
+            # Update bufferpool's page directory with the page location
+            page_id = self.base_page_ids[0][current_base_page_idx]
+            self.bufferpool.page_directory[rid] = page_id
+            
+            # Write metadata columns
+            self.bufferpool.write_to_page(self.name, self.base_page_ids[INDIRECTION_COLUMN][current_base_page_idx], rid)
+            self.bufferpool.write_to_page(self.name, self.base_page_ids[RID_COLUMN][current_base_page_idx], rid)
+            self.bufferpool.write_to_page(self.name, self.base_page_ids[TIMESTAMP_COLUMN][current_base_page_idx], timestamp)
+            self.bufferpool.write_to_page(self.name, self.base_page_ids[SCHEMA_ENCODING_COLUMN][current_base_page_idx], 0)
+            
+            # Write data columns
+            for i, value in enumerate(columns):
+                success = self.bufferpool.write_to_page(
+                    self.name, 
+                    self.base_page_ids[i + 4][current_base_page_idx], 
+                    value
+                )
+                if not success:
+                    return None
+            
+            # Update page directory with correct slot
+            self.page_directory[rid] = ('base', current_base_page_idx, slot)
+            
+            # Create and return record object
+            record = Record(rid, columns[self.key], list(columns))
+            record.indirection = rid
+            record.timestamp = timestamp
+            record.schema_encoding = 0
+            
+            # Update index AFTER successful write
+            if self.index:
                 for i, value in enumerate(columns):
-                    success = self.bufferpool.write_to_page(
-                        self.name, 
-                        self.base_page_ids[i + 4][current_base_page_idx], 
-                        value
-                    )
-                    if not success:
-                        f.write(f"ERROR: Failed to write value {value} to column {i}\n")
-                        return None
-                
-                # Update page directory with correct slot
-                self.page_directory[rid] = ('base', current_base_page_idx, slot)
-                
-                # Create and return record object
-                record = Record(rid, columns[self.key], list(columns))
-                record.indirection = rid
-                record.timestamp = timestamp
-                record.schema_encoding = 0
-                
-                # Update index AFTER successful write
-                if self.index:
-                    f.write(f"Updating index for RID {rid}\n")
-                    for i, value in enumerate(columns):
-                        if self.index.indices[i] is not None:
-                            success = self.index.update_index(i, value, rid)
-                            f.write(f"Column {i}: {value} -> RID {rid} (success={success})\n")
-                            
-                self.num_records += 1
-                f.write(f"Record created successfully with RID {rid}\n")
-                return record
+                    if self.index.indices[i] is not None:
+                        self.index.update_index(i, value, rid)
+                        
+            self.num_records += 1
+            return record
 
         except Exception as e:
-            with open('pt3_testoutput.txt', 'a') as f:
-                f.write(f"ERROR in create_record: {str(e)}\n")
-                import traceback
-                f.write(f"Traceback: {traceback.format_exc()}\n")
+            self._debug_log(f"Error in create_record: {str(e)}", "ERROR")
             return None
 
     def _get_page(self, is_base, column, page_index):
@@ -272,15 +266,11 @@ class Table:
         # Write base values first
         for i, value in enumerate(base_record.columns):
             self.bufferpool.write_to_page(self.name, self.tail_page_ids[i + 4][page_idx], value)
-            with open('pt3_testoutput.txt', 'a') as f:
-                f.write(f"[TABLE] Writing tail record base value {value} for column {i}\n")
         
         # Update with new values
         for i, value in enumerate(new_columns):
             if value is not None:
                 self.bufferpool.write_to_page(self.name, self.tail_page_ids[i + 4][page_idx], value)
-                with open('pt3_testoutput.txt', 'a') as f:
-                    f.write(f"[TABLE] Writing tail record new value {value} for column {i}\n")
 
         # Write metadata
         tail_indirection = base_record.indirection if base_record.indirection != base_record.rid else None

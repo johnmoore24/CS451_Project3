@@ -41,14 +41,22 @@ class Index:
 
     def _debug_log(self, message):
         """Helper method to log debug messages"""
-        with open('pt3_testoutput.txt', 'a') as f:
-            f.write(f"[INDEX {self.table.name}] {message}\n")
+        # with open('pt3_testoutput.txt', 'a') as f:
+        #     f.write(f"[INDEX {self.table.name}] {message}\n")
 
     def locate(self, column, value):
-        """Locate the RID for a given value in the specified column"""
-        if column >= len(self.indices) or self.indices[column] is None:
+        """Locate the RID for a given value in a column"""
+        #print(f"DEBUG INDEX:")
+        #print(f"  Looking up value {value} in column {column}")
+        # print(f"  Current index state: {self.indices[column]}")
+        
+        if self.indices[column] is None:
+            print("  No index exists for this column")
             return None
-        return self.indices[column].get(value)
+            
+        rid = self.indices[column].get(value)
+        #print(f"  Found RID: {rid}")
+        return rid
         
     def locate_range(self, begin, end, column):
         """Returns a sorted list of RIDs of records within the given range"""

@@ -11,32 +11,57 @@ It maintains a fixed-size pool of pages in memory to optimize database performan
 
 from lstore.page import Page
 import os
+import json
 
 class Bufferpool:
     def __init__(self, pool_size):
         self.pool_size = pool_size
         self.pool = {}
         self.lru = []
+        self.page_directory = {}
+        self.debug = False
+        
+        # Load page directory from metadata
+        try:
+            with open('CS451/Grades_metadata.json', 'r') as f:
+                metadata = json.loads(f.read())
+                if 'page_directory' in metadata:
+                    self._debug_log(f"Loading page directory from metadata")
+                    self.page_directory = metadata['page_directory']
+                    self._debug_log(f"Loaded {len(self.page_directory)} page directory entries")
+        except Exception as e:
+            self._debug_log(f"Failed to load page directory: {str(e)}")
+        
+    def _debug_log(self, message):
+        if self.debug:
+            print(f"BUFFERPOOL: {message}")
         
     def get_page(self, table_name, page_id):
         """
         Retrieves a page from bufferpool or disk if necessary
         """
+        self._debug_log(f"\n=== GET PAGE START for {table_name}/{page_id} ===")
         pool_key = f"{table_name}_{page_id}"
         
+        # Check if in memory
         if pool_key in self.pool:
+            self._debug_log(f"Found page in pool")
             self.lru.remove(pool_key)
             self.lru.append(pool_key)
             page, pin_count, is_dirty = self.pool[pool_key]
             self.pool[pool_key] = (page, pin_count + 1, is_dirty)
             return page
             
+        # Load from disk
+        self._debug_log(f"Page not in pool, loading from disk")
         page = self._load_page_from_disk(table_name, page_id)
         
+        # Add to pool
         if len(self.pool) >= self.pool_size:
+            self._debug_log(f"Pool full, evicting page")
             self._evict_page()
             
-        self.pool[pool_key] = (page, 1, False)  # pin_count=1, is_dirty=False
+        self.pool[pool_key] = (page, 1, False)
         self.lru.append(pool_key)
         
         return page
@@ -96,26 +121,36 @@ class Bufferpool:
                 return
                 
     def _load_page_from_disk(self, table_name, page_id):
-        """
-        Loads a page from disk. Returns a new page if file doesn't exist.
-        """
+        """Loads a page from disk. Returns a new page if file doesn't exist."""
+        self._debug_log(f"\n=== LOAD PAGE FROM DISK ===")
         directory = f"data/{table_name}"
         filepath = f"{directory}/{page_id}.db"
         
+        self._debug_log(f"Looking for file: {filepath}")
+        self._debug_log(f"Directory exists: {os.path.exists(directory)}")
+        
         if not os.path.exists(filepath):
+            self._debug_log(f"File not found: {filepath}")
             return Page()
             
         try:
             with open(filepath, 'rb') as f:
                 page = Page()
-                page.data = bytearray(f.read())
-                # Calculate number of records
-                for i in range(512):  # 4096/8 = 512 possible records
-                    if i * 8 >= len(page.data) or all(b == 0 for b in page.data[i*8:(i+1)*8]):
-                        page.num_records = i
-                        break
+                data = f.read()
+                self._debug_log(f"Read {len(data)} bytes")
+                page.data = bytearray(data)
+                
+                # Set number of records based on page size
+                page.num_records = len(data) // 8  # Assuming 8-byte records
+                
+                self._debug_log(f"Raw data preview: {page.data[:32].hex()}")  # Show first few bytes in hex
+                self._debug_log(f"Loaded page with {page.num_records} records")
                 return page
-        except Exception:
+                
+        except Exception as e:
+            self._debug_log(f"Error loading page: {str(e)}")
+            import traceback
+            self._debug_log(f"Traceback: {traceback.format_exc()}")
             return Page()
             
     def _write_page_to_disk(self, table_name, page_id, page):
@@ -149,3 +184,49 @@ class Bufferpool:
         """
         page = self.get_page(table_name, page_id)
         return page.num_records
+        
+    def get_record(self, rid):
+        self._debug_log(f"\n=== GET RECORD START for RID {rid} ===")
+        
+        try:
+            # Get page info from directory
+            if str(rid) not in self.page_directory:
+                self._debug_log(f"RID {rid} not found in directory")
+                return None
+            
+            page_info = self.page_directory[str(rid)]
+            self._debug_log(f"Page directory entry for RID {rid}: {page_info}")
+            
+            # Get specific page
+            page_type, page_index, slot = page_info
+            page_id = f"base_{page_type}_{page_index}"  # Changed format to match logs
+            
+            self._debug_log(f"Looking for specific page: {page_id}")
+            page = self.get_page("Grades", page_id)
+            
+            if not page:
+                self._debug_log(f"Failed to get page {page_id}")
+                return None
+            
+            # Try to read record
+            self._debug_log(f"Reading from slot {slot} in page {page_id}")
+            self._debug_log(f"Page data size: {len(page.data)}, num_records: {page.num_records}")
+            
+            value = page.read(slot)
+            self._debug_log(f"Read result: {value}")
+            
+            return value
+            
+        except Exception as e:
+            self._debug_log(f"Error in get_record: {str(e)}")
+            import traceback
+            self._debug_log(f"Traceback: {traceback.format_exc()}")
+            return None
+
+    def load_page_from_disk(self, page_id):
+        """Load a page from disk into the bufferpool"""
+        table_name = page_id.split('_')[0]  # Extract table name from page_id
+        page = self._load_page_from_disk(table_name, page_id)
+        self.pool[page_id] = (page, 1, False)  # pin_count=1, is_dirty=False
+        self.lru.append(page_id)
+        self._debug_log(f"Page {page_id} loaded into bufferpool")

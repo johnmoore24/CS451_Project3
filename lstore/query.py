@@ -18,7 +18,7 @@ class Query:
             raise ValueError("Table cannot be None")
         self._table = table  # Use private attribute
         self.verify_table_state()
-        self.debug = True
+        self.debug = False
         
     @property
     def table(self):
@@ -38,14 +38,15 @@ class Query:
         if missing_attrs:
             raise ValueError(f"Table missing required attributes: {missing_attrs}")
             
-        print(f"Table verification passed - {self._table.name}")
+        #print(f"Table verification passed - {self._table.name}")
         
     def _debug_log(self, message, level=1):
         """Helper method to log debug messages with levels"""
         if self.debug:
-            with open('pt3_testoutput.txt', 'a') as f:
-                f.write(f"[DEBUG] {message}\n")
-                f.flush()
+            #with open('pt3_testoutput.txt', 'a') as f:
+            #    f.write(f"[DEBUG] {message}\n")
+            #    f.flush()
+            pass
         
     def delete(self, primary_key):
         """Delete record with given primary key."""
@@ -99,55 +100,46 @@ class Query:
 
     def select(self, key, column, query_columns):
         """
-        # Returns Record(rid, key, columns) if found
-        # Returns False if record not found
+        Returns Record(rid, key, columns) if found
+        Returns False if record not found
         """
         try:
+            #print(f"\nDEBUG SELECT:")
+            #print(f"  Looking for key: {key}")
+            
+            # Check if index exists
+            if self.table.index.indices[self.table.key] is None:
+                print(f"  ERROR: No index found for key column")
+                return False
+            
             # First check index for the key
-            if self.table.index.indices[self.table.key] is not None:
-                rid = self.table.index.locate(self.table.key, key)
-                if rid is None:
-                    return False
-                    
-                # Get the record using the RID
-                record = self.table.get_record(rid)
-                if not record:
-                    return False
-                    
-                # Verify this is the correct record
-                if record.key != key:  # Add this check!
-                    return False
-                    
-                # Project only requested columns
-                if query_columns:
-                    projected_columns = []
-                    for i, include in enumerate(query_columns):
-                        if include:
-                            projected_columns.append(record.columns[i])
-                        else:
-                            projected_columns.append(None)
-                    record.columns = projected_columns
-                    
-                return [record]
-                
-            # If no index, do full table scan
-            records = self.table.get_all_records()
-            result = []
-            for record in records:
-                if record.columns[column] == key:
-                    if query_columns:
-                        projected_columns = []
-                        for i, include in enumerate(query_columns):
-                            if include:
-                                projected_columns.append(record.columns[i])
-                            else:
-                                projected_columns.append(None)
-                        record.columns = projected_columns
-                    result.append(record)
-            return result if result else False
-
+            rid = self.table.index.locate(self.table.key, key)
+            #print(f"  Index lookup result - RID: {rid}")
+            
+            if rid is None:
+                print(f"  Record not found in index")
+                return False
+            
+            # Get the record using the RID
+            record = self.table.get_record(rid)
+            #print(f"  Record retrieval result: {record}")
+            
+            if not record:
+                print(f"  Failed to get record with RID: {rid}")
+                return False
+            
+            # Verify this is the correct record
+            if record.key != key:
+                print(f"  Key mismatch - Expected: {key}, Got: {record.key}")
+                return False
+            
+            #print(f"  Successfully found record: {record.columns}")
+            return [record]
+            
         except Exception as e:
-            print(f"Error in select: {str(e)}")
+            print(f"  ERROR in select: {str(e)}")
+            import traceback
+            print(f"  Traceback: {traceback.format_exc()}")
             return False
     
     def select_version(self, key, key_index, projected_columns_index, relative_version):

@@ -19,6 +19,10 @@ class TransactionWorker(threading.Thread):
         self.transaction_states = {}
         self._lock = threading.Lock()
         self._started = threading.Event()
+        self.stats = {
+            'success': 0,
+            'failed': 0
+        }
 
     def _execute_transaction(self, transaction, attempt):
         """Execute a single transaction"""
@@ -70,22 +74,26 @@ class TransactionWorker(threading.Thread):
             self.join()
             return
 
-        success_count = 0
-        total_count = len(self.transactions)
-        
-        for transaction in self.transactions:
-            attempt = 1
-            while attempt <= self.MAX_RETRIES:
-                success, error = self._execute_transaction(transaction, attempt)
-                if success:
-                    success_count += 1
-                    break
-                attempt += 1
-                if attempt <= self.MAX_RETRIES:
-                    time.sleep(self.RETRY_DELAY * attempt)
-                    
-        self._log(f"Worker finished. Success rate: {success_count}/{total_count}")
-        return success_count
+        print(f"Worker {id(self)} [INFO]: Starting with {len(self.transactions)} transactions")
+        for txn in self.transactions:
+            try:
+                # Reset transaction state if needed
+                txn._started = False
+                txn._committed = False
+                txn._aborted = False
+                
+                # Execute transaction
+                if txn.execute():
+                    self.stats['success'] += 1
+                else:
+                    self.stats['failed'] += 1
+                    print(f"Worker {id(self)} [INFO]: Transaction failed to execute")
+            except Exception as e:
+                self.stats['failed'] += 1
+                print(f"Worker {id(self)} [INFO]: Query execution failed in transaction {txn.transaction_id}: {str(e)}")
+                
+        print(f"Worker {id(self)} [INFO]: Worker finished. Success rate: {self.stats['success']}/{len(self.transactions)}")
+        return self.stats['success']
 
     def start_and_join(self):
         """Helper method to start the thread and wait for it to finish"""
