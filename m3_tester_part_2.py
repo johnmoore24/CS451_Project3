@@ -2,31 +2,13 @@ from lstore.db import Database
 from lstore.query import Query
 from lstore.transaction import Transaction
 from lstore.transaction_worker import TransactionWorker
+
 from random import choice, randint, sample, seed
-import sys
-import os
-import shutil
-
-def clear_database():
-    """Clear the database directory"""
-    db_path = "./CS451"
-    if os.path.exists(db_path):
-        shutil.rmtree(db_path)
-    
-    # Also clear any data directory
-    data_path = "./data"
-    if os.path.exists(data_path):
-        shutil.rmtree(data_path)
-
-# Redirect stdout to file
-original_stdout = sys.stdout
-f = open('m3_p2_testoutput.txt', 'w')
-sys.stdout = f
 
 db = Database()
 db.open('./CS451')
 
-# Just get the existing Grades table
+# Getting the existing Grades table
 grades_table = db.get_table('Grades')
 
 # create a query class for the grades table
@@ -60,6 +42,10 @@ for i in range(number_of_transactions):
 for i in range(num_threads):
     transaction_workers.append(TransactionWorker())
 
+
+
+
+
 # x update on every column
 for j in range(number_of_operations_per_record):
     for key in keys:
@@ -76,9 +62,12 @@ for j in range(number_of_operations_per_record):
             transactions[key % number_of_transactions].add_query(query.update, grades_table, key, *updated_columns)
 print("Update finished")
 
-# add transactions to transaction workers  
+
+# add trasactions to transaction workers  
 for i in range(number_of_transactions):
     transaction_workers[i % num_threads].add_transaction(transactions[i])
+
+
 
 # run transaction workers
 for i in range(num_threads):
@@ -87,6 +76,7 @@ for i in range(num_threads):
 # wait for workers to finish
 for i in range(num_threads):
     transaction_workers[i].join()
+
 
 score = len(keys)
 for key in keys:
@@ -104,13 +94,3 @@ for key in keys:
 print('Score', score, '/', len(keys))
 
 db.close('./CS451')
-
-# Restore stdout
-sys.stdout = original_stdout
-f.close()
-
-# Print final score to console as well
-print('Score', score, '/', len(keys))
-
-# Clear the database at the end
-clear_database()

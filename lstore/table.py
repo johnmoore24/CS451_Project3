@@ -96,9 +96,9 @@ class Table:
     
     def create_record(self, *columns):
         try:
-            # Generate RID
             rid = self._get_next_rid()
-            timestamp = int(time() * 1000000)
+            key_value = columns[self.key]
+            #print(f"DEBUG: Creating record - RID: {rid}, Key: {key_value}")
             
             # Define page range size if not already defined
             if not hasattr(self, 'page_range_size'):
@@ -128,7 +128,7 @@ class Table:
             # Write metadata columns
             self.bufferpool.write_to_page(self.name, self.base_page_ids[INDIRECTION_COLUMN][current_base_page_idx], rid)
             self.bufferpool.write_to_page(self.name, self.base_page_ids[RID_COLUMN][current_base_page_idx], rid)
-            self.bufferpool.write_to_page(self.name, self.base_page_ids[TIMESTAMP_COLUMN][current_base_page_idx], timestamp)
+            self.bufferpool.write_to_page(self.name, self.base_page_ids[TIMESTAMP_COLUMN][current_base_page_idx], int(time() * 1000000))
             self.bufferpool.write_to_page(self.name, self.base_page_ids[SCHEMA_ENCODING_COLUMN][current_base_page_idx], 0)
             
             # Write data columns
@@ -147,20 +147,20 @@ class Table:
             # Create and return record object
             record = Record(rid, columns[self.key], list(columns))
             record.indirection = rid
-            record.timestamp = timestamp
+            record.timestamp = int(time() * 1000000)
             record.schema_encoding = 0
             
             # Update index AFTER successful write
             if self.index:
-                for i, value in enumerate(columns):
-                    if self.index.indices[i] is not None:
-                        self.index.update_index(i, value, rid)
-                        
+                #print(f"DEBUG: Adding to index - Key: {key_value} -> RID: {rid}")
+                # Only index the key column
+                self.index.update_index(self.key, key_value, rid)
+            
             self.num_records += 1
             return record
 
         except Exception as e:
-            self._debug_log(f"Error in create_record: {str(e)}", "ERROR")
+            print(f"ERROR in create_record: {str(e)}")
             return None
 
     def _get_page(self, is_base, column, page_index):

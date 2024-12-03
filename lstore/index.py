@@ -10,7 +10,7 @@ class Index:
         # Dictionary of dictionaries: {column_index: {value: rid}}
         self.indices = [None] * table.num_columns
         # Initialize index for key column
-        self.create_index(table.key)
+        self.indices[table.key] = {}
         self._debug_log(f"Created index for table {table.name}, key column: {table.key}")
         
     @classmethod
@@ -45,18 +45,22 @@ class Index:
         #     f.write(f"[INDEX {self.table.name}] {message}\n")
 
     def locate(self, column, value):
-        """Locate the RID for a given value in a column"""
-        #print(f"DEBUG INDEX:")
-        #print(f"  Looking up value {value} in column {column}")
-        # print(f"  Current index state: {self.indices[column]}")
-        
+        """Locate the RID associated with the given value in the specified column"""
         if self.indices[column] is None:
-            print("  No index exists for this column")
             return None
             
         rid = self.indices[column].get(value)
-        #print(f"  Found RID: {rid}")
-        return rid
+        if rid is not None:
+            # Verify the record still exists and has the correct key
+            record = self.table.get_record(rid)
+            if record and record.columns[column] == value:
+                return rid
+            else:
+                # If key doesn't match, remove invalid index entry
+                self.indices[column].pop(value, None)
+                return None
+                
+        return None
         
     def locate_range(self, begin, end, column):
         """Returns a sorted list of RIDs of records within the given range"""
@@ -123,23 +127,18 @@ class Index:
         return True
 
     def update_index(self, column, value, rid):
-        """Update or insert an index entry"""
-        if column >= len(self.indices) or self.indices[column] is None:
-            return False
+        """Update index by mapping value to rid"""
+        if self.indices[column] is None:
+            return
             
-        old_value = None
-        # Find and remove old value if it exists
-        for val, old_rid in self.indices[column].items():
-            if old_rid == rid:
-                old_value = val
-                break
-                
-        if old_value is not None:
-            del self.indices[column][old_value]
-                
-        self.indices[column][value] = rid
-        return True
-        
+        # Verify the record exists and has the correct key before indexing
+        record = self.table.get_record(rid)
+        if record and record.columns[column] == value:
+            self.indices[column][value] = rid
+        else:
+            # If key doesn't match, don't add to index
+            return False
+
     def rebuild_index(self):
         """
         Rebuilds all indices from the table data.

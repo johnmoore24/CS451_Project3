@@ -99,47 +99,28 @@ class Query:
             return False
 
     def select(self, key, column, query_columns):
-        """
-        Returns Record(rid, key, columns) if found
-        Returns False if record not found
-        """
+        """Returns Record(rid, key, columns) if found"""
         try:
-            #print(f"\nDEBUG SELECT:")
-            #print(f"  Looking for key: {key}")
-            
-            # Check if index exists
             if self.table.index.indices[self.table.key] is None:
-                print(f"  ERROR: No index found for key column")
                 return False
             
-            # First check index for the key
             rid = self.table.index.locate(self.table.key, key)
-            #print(f"  Index lookup result - RID: {rid}")
-            
             if rid is None:
-                print(f"  Record not found in index")
                 return False
             
-            # Get the record using the RID
             record = self.table.get_record(rid)
-            #print(f"  Record retrieval result: {record}")
-            
             if not record:
-                print(f"  Failed to get record with RID: {rid}")
                 return False
             
-            # Verify this is the correct record
+            # Double check key matches
             if record.key != key:
-                print(f"  Key mismatch - Expected: {key}, Got: {record.key}")
+                # Remove invalid index entry
+                self.table.index.indices[self.table.key].pop(key, None)
                 return False
             
-            #print(f"  Successfully found record: {record.columns}")
             return [record]
-            
+                
         except Exception as e:
-            print(f"  ERROR in select: {str(e)}")
-            import traceback
-            print(f"  Traceback: {traceback.format_exc()}")
             return False
     
     def select_version(self, key, key_index, projected_columns_index, relative_version):
@@ -240,6 +221,19 @@ class Query:
         self._debug_log(f"Primary Key: {primary_key}")
         self._debug_log(f"Update columns: {columns}")
         
+        # First verify the record exists with correct key
+        rid = self.table.index.locate(self.table.key, primary_key)
+        if rid is None:
+            self._debug_log("ERROR: Record not found in index")
+            return False
+        
+        record = self.table.get_record(rid)
+        if record is None or record.key != primary_key:
+            # Remove invalid index entry
+            self.table.index.indices[self.table.key].pop(primary_key, None)
+            self._debug_log("ERROR: Record not found or key mismatch")
+            return False
+        
         # Get current record
         current_record = self.select(primary_key, self.table.key, [1] * self.table.num_columns)
         if not current_record:
@@ -259,9 +253,9 @@ class Query:
                 self._debug_log(f"Updating column {i}: {new_columns[i]} -> {value}")
                 new_columns[i] = value
                 schema_encoding |= (1 << i)
-                
-        self._debug_log(f"New columns: {new_columns}")
-        self._debug_log(f"Schema encoding: {bin(schema_encoding)}")
+                    
+            self._debug_log(f"New columns: {new_columns}")
+            self._debug_log(f"Schema encoding: {bin(schema_encoding)}")
         
         # Update record
         rid = self.table.index.locate(self.table.key, primary_key)

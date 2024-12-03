@@ -102,7 +102,7 @@ class Transaction:
                     self.lock_manager.release_lock(self.transaction_id, args[0])
                     raise
 
-            print(f"DEBUG: Transaction {self.transaction_id} committing.")
+            #print(f"DEBUG: Transaction {self.transaction_id} committing.")
             return self.commit()
 
         except Exception as e:

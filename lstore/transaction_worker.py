@@ -74,7 +74,7 @@ class TransactionWorker(threading.Thread):
             self.join()
             return
 
-        print(f"Worker {id(self)} [INFO]: Starting with {len(self.transactions)} transactions")
+        #print(f"Worker {id(self)} [INFO]: Starting with {len(self.transactions)} transactions")
         for txn in self.transactions:
             try:
                 # Reset transaction state if needed
@@ -92,7 +92,7 @@ class TransactionWorker(threading.Thread):
                 self.stats['failed'] += 1
                 print(f"Worker {id(self)} [INFO]: Query execution failed in transaction {txn.transaction_id}: {str(e)}")
                 
-        print(f"Worker {id(self)} [INFO]: Worker finished. Success rate: {self.stats['success']}/{len(self.transactions)}")
+        #print(f"Worker {id(self)} [INFO]: Worker finished. Success rate: {self.stats['success']}/{len(self.transactions)}")
         return self.stats['success']
 
     def start_and_join(self):

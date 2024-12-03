@@ -30,11 +30,11 @@ class Database:
     def open(self, path):
         """Open or create database at specified path"""
         self.data_path = path
-        print(f"DEBUG: Opening database at {path}")
+        #print(f"DEBUG: Opening database at {path}")
         
         if not os.path.exists(path):
             os.makedirs(path)
-            print(f"DEBUG: No existing database found. Creating new at {path}")
+            #print(f"DEBUG: No existing database found. Creating new at {path}")
             return
 
         try:
@@ -42,10 +42,10 @@ class Database:
             if os.path.exists(metadata_path):
                 with open(metadata_path, 'r') as f:
                     metadata = json.load(f)
-                    print(f"DEBUG: Loaded metadata for tables: {list(metadata.keys())}")
+                    #print(f"DEBUG: Loaded metadata for tables: {list(metadata.keys())}")
                     
                     for table_name, table_info in metadata.items():
-                        print(f"DEBUG: Loading table {table_name}")
+                        #print(f"DEBUG: Loading table {table_name}")
                         table_metadata_path = os.path.join(path, f"{table_name}_metadata.json")
                         
                         if os.path.exists(table_metadata_path):
@@ -61,15 +61,15 @@ class Database:
                                     lock_manager=self.lock_manager
                                 )
                                 
-                                print(f"DEBUG: Table {table_name} loaded - attributes check:")
-                                print(f"  - bufferpool: {table.bufferpool is not None}")
-                                print(f"  - lock_manager: {table.lock_manager is not None}")
-                                print(f"  - num_columns: {table.num_columns}")
-                                print(f"  - num_records: {table.num_records}")
+                                # print(f"DEBUG: Table {table_name} loaded - attributes check:")
+                                # print(f"  - bufferpool: {table.bufferpool is not None}")
+                                # print(f"  - lock_manager: {table.lock_manager is not None}")
+                                # print(f"  - num_columns: {table.num_columns}")
+                                # print(f"  - num_records: {table.num_records}")
                                 
                                 self.tables[table_name] = table
                                 
-                print(f"Database loaded from {path}.")
+                #print(f"Database loaded from {path}.")
                 
         except Exception as e:
             print(f"Error loading database: {str(e)}")
@@ -135,19 +135,19 @@ class Database:
     def create_table(self, name, num_columns, key_index):
         """Create a new table or properly initialize existing table"""
         try:
-            print(f"DEBUG: Creating/getting table '{name}'")
-            print(f"DEBUG: Current tables: {list(self.tables.keys())}")
+            #print(f"DEBUG: Creating/getting table '{name}'")
+            #print(f"DEBUG: Current tables: {list(self.tables.keys())}")
             
             if name in self.tables:
-                print(f"DEBUG: Table '{name}' exists, verifying state")
+                #print(f"DEBUG: Table '{name}' exists, verifying state")
                 existing_table = self.tables[name]
                 
                 # Verify table state
-                print(f"DEBUG: Existing table state:")
-                print(f"  - bufferpool: {existing_table.bufferpool is not None}")
-                print(f"  - lock_manager: {existing_table.lock_manager is not None}")
-                print(f"  - num_columns: {existing_table.num_columns}")
-                print(f"  - num_records: {getattr(existing_table, 'num_records', None)}")
+                # print(f"DEBUG: Existing table state:")
+                # print(f"  - bufferpool: {existing_table.bufferpool is not None}")
+                # print(f"  - lock_manager: {existing_table.lock_manager is not None}")
+                # print(f"  - num_columns: {existing_table.num_columns}")
+                # print(f"  - num_records: {getattr(existing_table, 'num_records', None)}")
                 
                 # Re-initialize if needed
                 if not existing_table.bufferpool:
