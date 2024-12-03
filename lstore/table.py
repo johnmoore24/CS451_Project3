@@ -263,24 +263,27 @@ class Table:
 
     def _write_tail_record(self, base_record, tail_rid, timestamp, schema_encoding, page_idx, new_columns):
         """Helper to write tail record"""
-        # Write base values first
-        for i, value in enumerate(base_record.columns):
-            self.bufferpool.write_to_page(self.name, self.tail_page_ids[i + 4][page_idx], value)
+        # Store the current base record values (these are the values BEFORE the update)
+        current_values = list(base_record.columns)
         
-        # Update with new values
-        for i, value in enumerate(new_columns):
-            if value is not None:
-                self.bufferpool.write_to_page(self.name, self.tail_page_ids[i + 4][page_idx], value)
+        # Write the current values to the tail record
+        for i, value in enumerate(current_values):
+            self.bufferpool.write_to_page(self.name, self.tail_page_ids[i + 4][page_idx], value)
 
-        # Write metadata
-        tail_indirection = base_record.indirection if base_record.indirection != base_record.rid else None
-        self.bufferpool.write_to_page(self.name, self.tail_page_ids[INDIRECTION_COLUMN][page_idx], 
-                                    tail_indirection if tail_indirection is not None else base_record.rid)
+        # Get current indirection from base record
+        base_indirection = base_record.indirection
+        
+        # IMPORTANT: Tail record should point to the record that came before it
+        # If this is the first update (base points to itself), point to base
+        # Otherwise, point to where base was pointing (previous tail)
+        tail_indirection = base_record.rid if base_indirection == base_record.rid else base_indirection
+        
+        # Write metadata for tail record
+        self.bufferpool.write_to_page(self.name, self.tail_page_ids[INDIRECTION_COLUMN][page_idx], tail_indirection)
         self.bufferpool.write_to_page(self.name, self.tail_page_ids[RID_COLUMN][page_idx], tail_rid)
         self.bufferpool.write_to_page(self.name, self.tail_page_ids[TIMESTAMP_COLUMN][page_idx], timestamp)
-        self.bufferpool.write_to_page(self.name, self.tail_page_ids[SCHEMA_ENCODING_COLUMN][page_idx], 
-                                    schema_encoding)
-                                    
+        self.bufferpool.write_to_page(self.name, self.tail_page_ids[SCHEMA_ENCODING_COLUMN][page_idx], schema_encoding)
+        
         # Register in directory
         tail_slot = self.bufferpool.get_num_records(self.name, self.tail_page_ids[0][page_idx]) - 1
         self.page_directory[tail_rid] = ('tail', page_idx, tail_slot)
@@ -289,19 +292,37 @@ class Table:
         """Helper to update base record"""
         base_page_type, base_page_idx, base_slot = self.page_directory[base_rid]
         
-        # Update base record values
+        # Update base record with new values
         for i, value in enumerate(new_columns):
             if value is not None:
-                self.bufferpool.write_to_page(self.name, self.base_page_ids[i + 4][base_page_idx], 
-                                            value, base_slot)
-
-        # Update metadata
-        self.bufferpool.write_to_page(self.name, self.base_page_ids[INDIRECTION_COLUMN][base_page_idx], 
-                                    tail_rid, base_slot)
-        self.bufferpool.write_to_page(self.name, self.base_page_ids[TIMESTAMP_COLUMN][base_page_idx], 
-                                    timestamp, base_slot)
-        self.bufferpool.write_to_page(self.name, self.base_page_ids[SCHEMA_ENCODING_COLUMN][base_page_idx], 
-                                    schema_encoding, base_slot)
+                self.bufferpool.write_to_page(
+                    self.name, 
+                    self.base_page_ids[i + 4][base_page_idx],
+                    value, 
+                    base_slot
+                )
+        
+        # IMPORTANT: Base record ALWAYS points to the newest tail record
+        self.bufferpool.write_to_page(
+            self.name,
+            self.base_page_ids[INDIRECTION_COLUMN][base_page_idx],
+            tail_rid,
+            base_slot
+        )
+        
+        # Update timestamp and schema
+        self.bufferpool.write_to_page(
+            self.name,
+            self.base_page_ids[TIMESTAMP_COLUMN][base_page_idx],
+            timestamp,
+            base_slot
+        )
+        self.bufferpool.write_to_page(
+            self.name,
+            self.base_page_ids[SCHEMA_ENCODING_COLUMN][base_page_idx],
+            schema_encoding,
+            base_slot
+        )
 
     def __merge(self):
         """Merge tail records into base records"""

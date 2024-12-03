@@ -2,6 +2,7 @@
 data/
 CS451/
 *.db
+*.txt
 
 # Python
 __pycache__/

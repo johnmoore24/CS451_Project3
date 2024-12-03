@@ -143,31 +143,12 @@ class Query:
             return False
     
     def select_version(self, key, key_index, projected_columns_index, relative_version):
-        """
-        Select a specific version of a record with logging for version -2
-        """
-        # Add class variable if it doesn't exist
-        if not hasattr(self.__class__, '_debug_count'):
-            self.__class__._debug_count = 0
-
-        def log(message):
-            # Only log if it's version -2 and we haven't exceeded 100 logs
-            if relative_version == -2 and self.__class__._debug_count < 100:
-                with open('M1_output.txt', 'a') as f:
-                    f.write(str(message) + '\n')
-                    f.flush()
-        
+        """Select a specific version of a record"""
         try:
-            if relative_version == -2 and self.__class__._debug_count < 100:
-                self.__class__._debug_count += 1
-                log(f"\n====== SELECT VERSION -2 START (Query {self.__class__._debug_count}/100) ======")
-            
-            # Get base record RID
             rid = self.table.index.locate(key_index, key)
             if rid is None:
                 return [Record(None, key, [None] * sum(projected_columns_index))]
 
-            # Get base record
             base_record = self.table.get_record(rid)
             if not base_record:
                 return [Record(None, key, [None] * sum(projected_columns_index))]
@@ -177,66 +158,44 @@ class Query:
                 projected_columns = [base_record.columns[i] for i, include in enumerate(projected_columns_index) if include]
                 return [Record(base_record.rid, key, projected_columns)]
 
-            # Build version chain
-            versions = []
-            current_record = base_record
-            visited = {rid}
-
-            while current_record and current_record.indirection is not None:
-                if (current_record.indirection in visited or 
-                    current_record.indirection == current_record.rid):
+            # Build version chain, keeping only unique records with matching key
+            chain = []
+            current = base_record
+            visited = set()
+            
+            while current and current.indirection and current.indirection != current.rid:
+                if current.indirection in visited:
                     break
-
-                next_record = self.table.get_record(current_record.indirection)
+                visited.add(current.indirection)
+                next_record = self.table.get_record(current.indirection)
                 if not next_record:
                     break
+                    
+                # Only keep records with matching key (original values)
+                if next_record.columns[0] == key:
+                    chain.append(next_record)
+                current = next_record
 
-                versions.append(next_record)
-                visited.add(next_record.rid)
-                current_record = next_record
+            # Start with base record values
+            result_columns = list(base_record.columns)
+            
+            # If we found matching records in chain, use the first one's values
+            # (since tail records store original values)
+            if chain:
+                original_record = chain[0]
+                # Copy values from columns that were updated (based on schema)
+                schema = original_record.schema_encoding
+                for i in range(len(result_columns)):
+                    if schema & (1 << i):
+                        result_columns[i] = original_record.columns[i]
 
-            if relative_version == -2:
-                log(f"Found {len(versions)} versions in chain")
-                for i, v in enumerate(versions):
-                    log(f"Version {i}: RID={v.rid}, Columns={v.columns}")
-
-            # Handle no history or version too old
-            if not versions:
-                return [Record(base_record.rid, key,
-                            [base_record.columns[i] for i, include in enumerate(projected_columns_index) if include])]
-                            
-            if abs(relative_version) > len(versions):
-                # Return original record state
-                projected_columns = [base_record.columns[i] for i, include in enumerate(projected_columns_index) if include]
-                result = Record(base_record.rid, key, projected_columns)
-                return [result]
-
-            # KEY CHANGE: For version -2, we want original state before first update
-            if relative_version == -2:
-                # Start with base record state
-                result_columns = list(versions[-1].columns)  # Use oldest tail record's values
-                log(f"Using oldest version columns: {result_columns}")
-                
-                projected_columns = [result_columns[i] for i, include in enumerate(projected_columns_index) if include]
-                result = Record(base_record.rid, key, projected_columns)
-                log(f"Final version -2 columns: {projected_columns}")
-                return [result]
-                
-            # For version -1, use the previous version
-            elif relative_version == -1:
-                # Use the first tail record's state directly
-                projected_columns = [versions[0].columns[i] for i, include in enumerate(projected_columns_index) if include]
-                result = Record(base_record.rid, key, projected_columns)
-                return [result]
-
-            return [Record(base_record.rid, key,
-                        [base_record.columns[i] for i, include in enumerate(projected_columns_index) if include])]
+            projected_columns = [result_columns[i] for i, include in enumerate(projected_columns_index) if include]
+            return [Record(base_record.rid, key, projected_columns)]
 
         except Exception as e:
-            if relative_version == -2:
-                log(f"Error in select_version: {str(e)}")
-                import traceback
-                log(traceback.format_exc())
+            print(f"Error in select_version: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
             return [Record(None, key, [None] * sum(projected_columns_index))]
 
     def _decode_schema(self, schema_encoding):
@@ -398,30 +357,36 @@ class Query:
                 
             running_sum = 0
             
-            # Get all base records in range using index
-            matching_rids = self.table.index.locate_range(start_range, end_range, self.table.key)
+            # Instead of using locate_range, iterate through the index directly
+            index_dict = self.table.index.indices[self.table.key]
+            if not index_dict:
+                return 0
             
-            # For each matching key, get the correct version and add to sum
-            for rid in matching_rids:
-                base_record = self.table.get_record(rid)
-                if not base_record:
-                    continue
+            # Get all keys in range
+            for key in sorted(index_dict.keys()):
+                if start_range <= key <= end_range:
+                    rid = index_dict[key]
+                    base_record = self.table.get_record(rid)
+                    if not base_record:
+                        continue
                     
-                # Get correct version of the record
-                versioned_record = self.select_version(
-                    base_record.key,
-                    self.table.key,
-                    [1] * self.table.num_columns,
-                    relative_version
-                )[0]
-                
-                if versioned_record and versioned_record.rid is not None:
-                    running_sum += versioned_record.columns[aggregate_column_index]
+                    # Get correct version of the record
+                    versioned_record = self.select_version(
+                        key,
+                        self.table.key,
+                        [1] * self.table.num_columns,
+                        relative_version
+                    )
+                    
+                    if versioned_record and len(versioned_record) > 0 and versioned_record[0].rid is not None:
+                        running_sum += versioned_record[0].columns[aggregate_column_index]
                     
             return running_sum
             
         except Exception as e:
             print(f"Error in sum_version: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
             return 0
         
     def increment(self, key, column):
